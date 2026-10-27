@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isAdmin() { return signedIn() && request.auth.token.admin == true; }
+
+    // Storefront product catalogue is public to read. Only trusted admins may change it.
+    match /products/{productId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Orders are private to their owner. Order document ID is also the orderId.
+    match /orders/{orderId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.orderId == orderId
+        && request.resource.data.status == 'Pending'
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0;
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      // Status/price changes must be performed through a trusted server/admin workflow.
+      allow update, delete: if isAdmin();
+    }
+
+    // Default-deny every collection not explicitly listed above.
+    match /{document=**} { allow read, write: if false; }
+  }
+}
